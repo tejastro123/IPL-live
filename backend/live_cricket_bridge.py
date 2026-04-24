@@ -43,7 +43,7 @@ async def fetch_html(url: str) -> str:
 
     try:
         async with httpx.AsyncClient(
-            timeout=12.0,
+            timeout=30.0,
             follow_redirects=True,
         ) as client:
             response = await client.get(url, headers=parser.HEADERS)
