@@ -1,112 +1,228 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-
-interface Match {
-  id: number
-  api_match_id: string
-  match_name: string
-  match_number: number
-  date: string
-  venue: string
-  status: string
-  match_type: string
-  team1: { id: string; name: string; short: string }
-  team2: { id: string; name: string; short: string }
-  team1_score: string
-  team1_wickets: number
-  team1_overs: number
-  team2_score: string
-  team2_wickets: number
-  team2_overs: number
-  result: string
-  winning_team: string
-}
-
-interface LiveMatch {
-  api_match_id: string
-  match_name: string
-  date: string
-  venue: string
-  status: string
-  team1: { id: string; name: string; short: string }
-  team2: { id: string; name: string; short: string }
-  team1_score: string
-  team2_score: string
-  result: string
-}
+import { Link } from 'react-router-dom'
+import {
+  fetchJson,
+  formatDate,
+  getTeamMeta,
+  inferMatchState,
+  MatchRecord,
+  OverviewMatch,
+  OverviewResponse,
+  pointsTableToRows,
+  SiteStatus,
+} from '../lib/cricket'
 
 function Home() {
-  const [matches, setMatches] = useState<LiveMatch[]>([])
+  const [matches, setMatches] = useState<MatchRecord[]>([])
+  const [overview, setOverview] = useState<OverviewResponse | null>(null)
+  const [status, setStatus] = useState<SiteStatus | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/matches')
-      .then(r => r.json())
-      .then(data => {
-        setMatches(Array.isArray(data) ? data.slice(0, 5) : [])
-      })
-      .finally(() => setLoading(false))
+    let active = true
+
+    async function loadHome() {
+      try {
+        const [overviewData, matchesData, statusData] = await Promise.all([
+          fetchJson<OverviewResponse>('/api/overview').catch(() => null),
+          fetchJson<MatchRecord[]>('/api/matches').catch(() => []),
+          fetchJson<SiteStatus>('/api/status').catch(() => null),
+        ])
+
+        if (!active) return
+        setOverview(overviewData)
+        setMatches(matchesData)
+        setStatus(statusData)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+
+    loadHome()
+    return () => {
+      active = false
+    }
   }, [])
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })
-  }
+  if (loading) return <div className="loading">Loading season view...</div>
 
-  if (loading) return <div className="loading">Loading...</div>
+  const seasonTitle = overview?.series?.title ?? 'IPL 2026'
+  const liveMatch = matches.find((match) => match.status === 'LIVE') ?? null
+  const recentResults = matches.filter((match) => match.status === 'COMPLETED').slice(0, 3)
+  const fixtures = (overview?.matches ?? []).filter((match) => inferMatchState(match.status) === 'upcoming').slice(0, 4)
+  const pointsPreview = pointsTableToRows(overview).slice(0, 4)
+  const spotlight: OverviewMatch | null =
+    liveMatch
+      ? {
+          summary: liveMatch.match_name,
+          label: liveMatch.match_type,
+          venue: liveMatch.venue,
+          team1: liveMatch.team1.short,
+          team2: liveMatch.team2.short,
+          status: liveMatch.result || liveMatch.status,
+        }
+      : fixtures[0] ?? null
 
   return (
-    <div>
-      <div className="hero">
-        <h1>🏏 IPL 2026</h1>
-        <p>Indian Premier League - Live Scores, Stats & More</p>
-      </div>
+    <div className="page-stack">
+      <section className="hero-panel">
+        <div className="hero-copy">
+          <span className="eyebrow">IPL control room</span>
+          <h1>{seasonTitle}</h1>
+          <p>
+            Live schedule coverage, standings fallback, and tracked scorecards now draw from the
+            `live-cricket-score-api` folder instead of leaving it unused beside the website.
+          </p>
 
-      <div className="links-grid">
-        <Link to="/matches" className="link-card">
-          <span className="icon">📅</span>
-          <span className="title">Matches</span>
-          <span className="desc">All IPL matches - Live, Upcoming & Completed</span>
-        </Link>
-        <Link to="/standings" className="link-card">
-          <span className="icon">📊</span>
-          <span className="title">Points Table</span>
-          <span className="desc">Team standings & rankings</span>
-        </Link>
-        <Link to="/teams" className="link-card">
-          <span className="icon">🏆</span>
-          <span className="title">Teams</span>
-          <span className="desc">All 10 IPL teams & players</span>
-        </Link>
-        <Link to="/players" className="link-card">
-          <span className="icon">👥</span>
-          <span className="title">Players</span>
-          <span className="desc">All player profiles</span>
-        </Link>
-      </div>
+          {status?.scraper && !status.scraper.available && (
+            <div className="subtle-warning">
+              Season scraper unavailable. Local tracked data is still online.
+            </div>
+          )}
 
-      <div className="section">
-        <div className="section-header">
-          <h2>Recent Results</h2>
-          <Link to="/matches" className="view-all">View All →</Link>
+          <div className="metric-row">
+            <div className="metric-card">
+              <strong>{status?.live_matches ?? 0}</strong>
+              <span>Tracked live matches</span>
+            </div>
+            <div className="metric-card">
+              <strong>{overview?.matches?.length ?? 0}</strong>
+              <span>Season fixtures detected</span>
+            </div>
+            <div className="metric-card">
+              <strong>{overview?.points_table?.length ?? 0}</strong>
+              <span>Standings rows scraped</span>
+            </div>
+          </div>
         </div>
-        {matches.length > 0 ? (
-          <div className="results-list">
-            {matches.map(m => (
-              <Link key={m.api_match_id} to={`/match/${m.api_match_id}`} className="result-card">
-                <div className="result-date">{formatDate(m.date)}</div>
-                <div className="result-teams">
-                  <span className="team">{m.team1.name}</span>
-                  <span className="vs">vs</span>
-                  <span className="team">{m.team2.name}</span>
+
+        <div className="spotlight-card">
+          <div className="spotlight-header">
+            <span className={`status-pill ${liveMatch ? 'live' : 'upcoming'}`}>
+              {liveMatch ? 'Live spotlight' : 'Next fixture'}
+            </span>
+            {spotlight && <span>{spotlight.label}</span>}
+          </div>
+
+          {spotlight ? (
+            <>
+              <div className="versus-lockup">
+                <div className="team-emblem" style={{ background: getTeamMeta(spotlight.team1).color }}>
+                  {spotlight.team1}
                 </div>
-                <div className="result-outcome">{m.result}</div>
+                <span className="versus-separator">vs</span>
+                <div className="team-emblem" style={{ background: getTeamMeta(spotlight.team2).color }}>
+                  {spotlight.team2}
+                </div>
+              </div>
+              <h2>{spotlight.summary}</h2>
+              <p>{spotlight.venue}</p>
+              <p className="spotlight-status">{spotlight.status}</p>
+              {liveMatch && (
+                <Link to={`/match/${liveMatch.api_match_id}`} className="primary-cta">
+                  Open tracked scorecard
+                </Link>
+              )}
+            </>
+          ) : (
+            <div className="empty-state compact">
+              <p>No season fixtures available right now.</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="content-grid">
+        <div className="glass-card">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">Schedule board</span>
+              <h2>Upcoming fixtures</h2>
+            </div>
+            <Link to="/matches" className="text-link">Full board</Link>
+          </div>
+
+          <div className="fixture-list">
+            {fixtures.length > 0 ? fixtures.map((fixture) => (
+              <article key={fixture.summary} className="fixture-card">
+                <div className="fixture-line">
+                  <strong>{fixture.team1}</strong>
+                  <span>vs</span>
+                  <strong>{fixture.team2}</strong>
+                </div>
+                <p>{fixture.label}</p>
+                <p>{fixture.venue}</p>
+                <span className="status-pill upcoming">{fixture.status}</span>
+              </article>
+            )) : (
+              <div className="empty-state compact">
+                <p>No upcoming fixtures from the season feed.</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="glass-card">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">Table watch</span>
+              <h2>Top four</h2>
+            </div>
+            <Link to="/standings" className="text-link">Standings</Link>
+          </div>
+
+          <div className="standings-preview">
+            {pointsPreview.length > 0 ? pointsPreview.map((team, index) => (
+              <div key={team.team_id} className="table-preview-row">
+                <span className="rank-badge">{index + 1}</span>
+                <div>
+                  <strong>{team.team_short}</strong>
+                  <p>{team.team_name}</p>
+                </div>
+                <div className="table-preview-metrics">
+                  <span>{team.points} pts</span>
+                  <small>NRR {team.net_run_rate}</small>
+                </div>
+              </div>
+            )) : (
+              <div className="empty-state compact">
+                <p>Standings will appear here when the scraper responds.</p>
+              </div>
+            )}
+          </div>
+
+          {status?.scraper?.season && (
+            <p className="subtle-note">Fallback season source: {status.scraper.season}</p>
+          )}
+        </div>
+      </section>
+
+      <section className="glass-card">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Tracked results</span>
+            <h2>Recent completed matches</h2>
+          </div>
+          <Link to="/matches" className="text-link">All tracked matches</Link>
+        </div>
+
+        {recentResults.length > 0 ? (
+          <div className="result-grid">
+            {recentResults.map((match) => (
+              <Link key={match.api_match_id} to={`/match/${match.api_match_id}`} className="result-panel">
+                <span className="result-date">{formatDate(match.date, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                <strong>{match.team1.short} vs {match.team2.short}</strong>
+                <p>{match.result || 'Result pending'}</p>
+                <span>{match.venue}</span>
               </Link>
             ))}
           </div>
         ) : (
-          <p className="empty">No matches yet. Click Refresh to sync.</p>
+          <div className="empty-state">
+            <p>No tracked results yet. Use the admin dashboard to sync match scorecards.</p>
+          </div>
         )}
-      </div>
+      </section>
     </div>
   )
 }

@@ -1,6 +1,10 @@
 const Footer = () => (
-  <footer style={{ background: '#222', color: '#fff', padding: '1rem', textAlign: 'center', marginTop: '2rem' }}>
-    <p>© {new Date().getFullYear()} IPL Fan Website. All rights reserved.</p>
+  <footer className="site-footer">
+    <div>
+      <strong>IPL Pulse</strong>
+      <p>Upgraded with the `live-cricket-score-api` season feed for schedule and standings coverage.</p>
+    </div>
+    <p>© {new Date().getFullYear()} IPL Pulse</p>
   </footer>
 )
 

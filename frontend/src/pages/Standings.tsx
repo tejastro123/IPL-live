@@ -1,63 +1,74 @@
 import { useEffect, useState } from 'react'
-
-interface TeamStanding {
-  team_id: string
-  team_name: string
-  team_short: string
-  played: number
-  won: number
-  lost: number
-  tied: number
-  no_result: number
-  points: number
-  net_run_rate: number
-}
+import { fetchJson, PointsRow } from '../lib/cricket'
 
 function Standings() {
-  const [standings, setStandings] = useState<TeamStanding[]>([])
+  const [standings, setStandings] = useState<PointsRow[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/points-table')
-      .then(r => r.json())
-      .then(data => setStandings(Array.isArray(data) ? data : []))
-      .finally(() => setLoading(false))
+    let active = true
+
+    fetchJson<PointsRow[]>('/api/points-table')
+      .then((data) => {
+        if (active) setStandings(Array.isArray(data) ? data : [])
+      })
+      .catch(() => {
+        if (active) setStandings([])
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
   }, [])
 
   if (loading) return <div className="loading">Loading standings...</div>
 
   return (
-    <div className="page">
-      <h2>📊 Points Table</h2>
-      
+    <div className="page-stack">
+      <div className="page-banner">
+        <div>
+          <span className="eyebrow">Points table</span>
+          <h1>Standings and qualification race</h1>
+          <p>The page now falls back to the scraped IPL table when your local database has not been synced yet.</p>
+        </div>
+      </div>
+
       {standings.length === 0 ? (
         <div className="empty-state">
-          <p>No data yet. Sync matches to see standings.</p>
+          <p>No standings data available right now.</p>
         </div>
       ) : (
-        <div className="standings-table">
-          <div className="table-header">
-            <span className="pos">#</span>
-            <span className="team">Team</span>
-            <span className="stat">P</span>
-            <span className="stat">W</span>
-            <span className="stat">L</span>
-            <span className="stat">Pts</span>
+        <section className="glass-card">
+          <div className="standings-header-row">
+            <span>#</span>
+            <span>Team</span>
+            <span>P</span>
+            <span>W</span>
+            <span>L</span>
+            <span>NR</span>
+            <span>NRR</span>
+            <span>Pts</span>
           </div>
-          {standings.map((t, i) => (
-            <div key={t.team_id} className={`table-row ${i < 4 ? 'playoffs' : ''}`}>
-              <span className="pos">{i + 1}</span>
-              <span className="team">
-                <span className="team-badge">{t.team_short}</span>
-                {t.team_name}
+
+          {standings.map((team, index) => (
+            <div key={team.team_id} className={`standings-row ${index < 4 ? 'qualifier' : ''}`}>
+              <span>{index + 1}</span>
+              <span className="team-name-cell">
+                <strong>{team.team_short}</strong>
+                <small>{team.team_name}</small>
               </span>
-              <span className="stat">{t.played}</span>
-              <span className="stat won">{t.won}</span>
-              <span className="stat lost">{t.lost}</span>
-              <span className="stat points">{t.points}</span>
+              <span>{team.played}</span>
+              <span>{team.won}</span>
+              <span>{team.lost}</span>
+              <span>{team.no_result}</span>
+              <span>{team.net_run_rate}</span>
+              <span className="points-cell">{team.points}</span>
             </div>
           ))}
-        </div>
+        </section>
       )}
     </div>
   )

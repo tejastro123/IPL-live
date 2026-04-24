@@ -1,92 +1,110 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-
-interface Team {
-  team_id: string
-  name: string
-  short_name: string
-  logo_url: string
-  primary_color: string
-}
-
-interface Player {
-  player_id: string
-  name: string
-  team_id: string
-  role: string
-  batting_style: string
-  bowling_style: string
-  jersey_number: number
-  image_url: string
-}
+import { fetchJson, getTeamMeta, PlayerRecord, TEAM_META, TeamRecord } from '../lib/cricket'
 
 function Teams() {
-  const [teams, setTeams] = useState<Team[]>([])
-  const [players, setPlayers] = useState<Player[]>([])
+  const [teams, setTeams] = useState<TeamRecord[]>([])
+  const [players, setPlayers] = useState<PlayerRecord[]>([])
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const { teamId } = useParams()
 
   useEffect(() => {
+    let active = true
+
     Promise.all([
-      fetch('/api/teams').then(r => r.json()),
-      fetch('/api/players').then(r => r.json())
+      fetchJson<TeamRecord[]>('/api/teams').catch(() => []),
+      fetchJson<PlayerRecord[]>('/api/players').catch(() => []),
     ]).then(([teamsData, playersData]) => {
+      if (!active) return
       setTeams(Array.isArray(teamsData) ? teamsData : [])
       setPlayers(Array.isArray(playersData) ? playersData : [])
-      if (teamId) setSelectedTeam(teamId)
+      setSelectedTeam(teamId ?? null)
       setLoading(false)
     })
+
+    return () => {
+      active = false
+    }
   }, [teamId])
 
-  const teamPlayers = selectedTeam ? players.filter(p => p.team_id === selectedTeam) : []
+  const fallbackTeams = Object.values(TEAM_META).map((team) => ({
+    team_id: team.code,
+    name: team.name,
+    short_name: team.code,
+    primary_color: team.color,
+  }))
 
-  if (loading) return <div className="loading">Loading...</div>
+  const teamList = teams.length > 0 ? teams : fallbackTeams
+  const teamPlayers = selectedTeam ? players.filter((player) => player.team_id === selectedTeam) : []
+
+  if (loading) return <div className="loading">Loading teams...</div>
 
   return (
-    <div className="page">
-      <h2>🏆 IPL Teams</h2>
-      
-      <div className="team-tabs">
-        {teams.map(t => (
-          <button key={t.team_id} className={selectedTeam === t.team_id ? 'active' : ''} onClick={() => setSelectedTeam(t.team_id)}>
-            {t.short_name}
+    <div className="page-stack">
+      <div className="page-banner">
+        <div>
+          <span className="eyebrow">Franchise directory</span>
+          <h1>All IPL teams</h1>
+          <p>Browse the full league map and drill into locally synced rosters where available.</p>
+        </div>
+      </div>
+
+      <div className="filter-row">
+        {teamList.map((team) => (
+          <button key={team.team_id} className={selectedTeam === team.team_id ? 'active' : ''} onClick={() => setSelectedTeam(team.team_id)}>
+            {team.short_name}
           </button>
         ))}
       </div>
 
       {!selectedTeam ? (
-        <div className="teams-grid">
-          {teams.map(t => (
-            <button key={t.team_id} className="team-card" onClick={() => setSelectedTeam(t.team_id)}>
-              <span className="team-short">{t.short_name}</span>
-              <span className="team-name">{t.name}</span>
-            </button>
-          ))}
+        <div className="team-showcase-grid">
+          {teamList.map((team) => {
+            const meta = getTeamMeta(team.short_name, team.name)
+            const rosterCount = players.filter((player) => player.team_id === team.team_id).length
+
+            return (
+              <button
+                key={team.team_id}
+                className="team-showcase-card"
+                onClick={() => setSelectedTeam(team.team_id)}
+                style={{ background: `linear-gradient(145deg, ${meta.color}, ${meta.accent})` }}
+              >
+                <span className="team-short">{team.short_name}</span>
+                <strong>{team.name}</strong>
+                <small>{rosterCount > 0 ? `${rosterCount} synced players` : 'Roster available after sync'}</small>
+              </button>
+            )
+          })}
         </div>
       ) : (
-        <div className="team-detail">
-          <button className="back-btn" onClick={() => setSelectedTeam(null)}>← All Teams</button>
-          
+        <div className="glass-card">
+          <button className="ghost-link" onClick={() => setSelectedTeam(null)}>Back to all teams</button>
+
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">{selectedTeam}</span>
+              <h2>{teamList.find((team) => team.team_id === selectedTeam)?.name ?? selectedTeam}</h2>
+            </div>
+          </div>
+
           {teamPlayers.length > 0 ? (
-            <>
-              <h3>Players ({teamPlayers.length})</h3>
-              <div className="players-grid">
-                {teamPlayers.map(p => (
-                  <div key={p.player_id} className="player-card">
-                    <span className="jersey">#{p.jersey_number}</span>
-                    <span className="name">{p.name}</span>
-                    <span className="role">{p.role}</span>
-                    <div className="styles">
-                      <span>🏏 {p.batting_style}</span>
-                      <span>🎯 {p.bowling_style}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
+            <div className="roster-grid">
+              {teamPlayers.map((player) => (
+                <article key={player.player_id} className="roster-card">
+                  <span className="jersey-badge">#{player.jersey_number || '--'}</span>
+                  <strong>{player.name}</strong>
+                  <p>{player.role}</p>
+                  <small>{player.batting_style || 'Batting style TBA'}</small>
+                  <small>{player.bowling_style || 'Bowling style TBA'}</small>
+                </article>
+              ))}
+            </div>
           ) : (
-            <p className="empty">No players in this team.</p>
+            <div className="empty-state">
+              <p>No synced player roster for this team yet.</p>
+            </div>
           )}
         </div>
       )}

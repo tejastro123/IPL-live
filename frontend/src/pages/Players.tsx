@@ -1,69 +1,84 @@
-import { useEffect, useState } from 'react'
-
-interface Player {
-  player_id: string
-  name: string
-  team_id: string
-  role: string
-  batting_style: string
-  bowling_style: string
-  jersey_number: number
-}
+import { startTransition, useDeferredValue, useEffect, useState } from 'react'
+import { fetchJson, PlayerRecord, TEAM_META } from '../lib/cricket'
 
 function Players() {
-  const [players, setPlayers] = useState<Player[]>([])
+  const [players, setPlayers] = useState<PlayerRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const deferredSearch = useDeferredValue(search)
 
   useEffect(() => {
-    fetch('/api/players')
-      .then(r => r.json())
-      .then(data => setPlayers(Array.isArray(data) ? data : []))
-      .finally(() => setLoading(false))
+    let active = true
+
+    fetchJson<PlayerRecord[]>('/api/players')
+      .then((data) => {
+        if (active) setPlayers(Array.isArray(data) ? data : [])
+      })
+      .catch(() => {
+        if (active) setPlayers([])
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
   }, [])
 
-  const filtered = players.filter(p => {
-    if (filter !== 'all' && p.team_id !== filter) return false
-    if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false
+  const filteredPlayers = players.filter((player) => {
+    if (filter !== 'all' && player.team_id !== filter) return false
+    if (deferredSearch && !player.name.toLowerCase().includes(deferredSearch.toLowerCase())) return false
     return true
   })
 
-  if (loading) return <div className="loading">Loading...</div>
+  if (loading) return <div className="loading">Loading players...</div>
 
   return (
-    <div className="page">
-      <h2>👥 All Players</h2>
-      
-      <div className="filters">
-        <input type="text" placeholder="Search player..." value={search} onChange={e => setSearch(e.target.value)} />
-        <select value={filter} onChange={e => setFilter(e.target.value)}>
-          <option value="all">All Teams</option>
-          <option value="RCB">RCB</option>
-          <option value="MI">MI</option>
-          <option value="CSK">CSK</option>
-          <option value="DC">DC</option>
-          <option value="KKR">KKR</option>
-          <option value="RR">RR</option>
-          <option value="PBKS">PBKS</option>
-          <option value="LSG">LSG</option>
-          <option value="SRH">SRH</option>
-          <option value="GT">GT</option>
+    <div className="page-stack">
+      <div className="page-banner">
+        <div>
+          <span className="eyebrow">Squad index</span>
+          <h1>Player directory</h1>
+          <p>Filter synced rosters by franchise or player name.</p>
+        </div>
+      </div>
+
+      <div className="search-toolbar">
+        <input
+          type="text"
+          placeholder="Search a player"
+          value={search}
+          onChange={(event) => {
+            const nextValue = event.target.value
+            startTransition(() => {
+              setSearch(nextValue)
+            })
+          }}
+        />
+        <select value={filter} onChange={(event) => setFilter(event.target.value)}>
+          <option value="all">All teams</option>
+          {Object.keys(TEAM_META).map((teamCode) => (
+            <option key={teamCode} value={teamCode}>{teamCode}</option>
+          ))}
         </select>
       </div>
 
-      {filtered.length === 0 ? (
-        <p className="empty">No players found.</p>
-      ) : (
-        <div className="players-list">
-          {filtered.map(p => (
-            <div key={p.player_id} className="player-row">
-              <span className="jersey">#{p.jersey_number}</span>
-              <span className="name">{p.name}</span>
-              <span className="team">{p.team_id}</span>
-              <span className="role">{p.role}</span>
-            </div>
+      {filteredPlayers.length > 0 ? (
+        <div className="player-directory-grid">
+          {filteredPlayers.map((player) => (
+            <article key={player.player_id} className="player-directory-card">
+              <span className="jersey-badge">#{player.jersey_number || '--'}</span>
+              <strong>{player.name}</strong>
+              <p>{player.role}</p>
+              <small>{player.team_id}</small>
+            </article>
           ))}
+        </div>
+      ) : (
+        <div className="empty-state">
+          <p>No players matched your current filter.</p>
         </div>
       )}
     </div>

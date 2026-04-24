@@ -1,5 +1,6 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -9,6 +10,11 @@ from datetime import datetime
 import requests
 from dotenv import load_dotenv
 from typing import Optional
+from live_cricket_bridge import (
+    LiveCricketSourceError,
+    fetch_ipl_overview,
+    fetch_live_score,
+)
 
 load_dotenv()
 
@@ -181,6 +187,39 @@ def get_matches():
         } for m in matches]
     finally:
         db.close()
+
+
+@app.get("/api/overview")
+async def get_overview(year: Optional[int] = Query(default=None, ge=2008, le=2100)):
+    try:
+        return await fetch_ipl_overview(year)
+    except LiveCricketSourceError as exc:
+        return JSONResponse(
+            status_code=502,
+            content={
+                "status": "error",
+                "message": str(exc),
+                "series": None,
+                "matches": [],
+                "points_table": [],
+            },
+        )
+
+
+@app.get("/api/live-score/{match_id}")
+async def get_live_score(match_id: str):
+    try:
+        return await fetch_live_score(match_id)
+    except LiveCricketSourceError as exc:
+        return JSONResponse(
+            status_code=502,
+            content={"status": "error", "message": str(exc)},
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"status": "error", "message": str(exc)},
+        )
 
 
 @app.get("/api/matches/{match_id}")
@@ -361,24 +400,42 @@ def update_points_table(db, matches):
 
 
 @app.get("/api/points-table")
-def get_points_table():
+async def get_points_table():
     db = SessionLocal()
     try:
         points = db.query(PointsTable).order_by(PointsTable.points.desc()).all()
-        return [{
-            "team_id": p.team_id,
-            "team_name": p.team_name,
-            "team_short": p.team_short,
-            "played": p.played,
-            "won": p.won,
-            "lost": p.lost,
-            "tied": p.tied,
-            "no_result": p.no_result,
-            "points": p.points,
-            "net_run_rate": p.net_run_rate
-        } for p in points]
+        if points:
+            return [{
+                "team_id": p.team_id,
+                "team_name": p.team_name,
+                "team_short": p.team_short,
+                "played": p.played,
+                "won": p.won,
+                "lost": p.lost,
+                "tied": p.tied,
+                "no_result": p.no_result,
+                "points": p.points,
+                "net_run_rate": p.net_run_rate
+            } for p in points]
     finally:
         db.close()
+
+    try:
+        overview = await fetch_ipl_overview()
+        return [{
+            "team_id": row["team"],
+            "team_name": row["team"],
+            "team_short": row["team"],
+            "played": row["played"],
+            "won": row["won"],
+            "lost": row["lost"],
+            "tied": 0,
+            "no_result": row["no_result"],
+            "points": row["points"],
+            "net_run_rate": row["net_run_rate"]
+        } for row in overview.get("points_table", [])]
+    except LiveCricketSourceError:
+        return []
 
 
 @app.get("/api/teams")
@@ -488,7 +545,7 @@ def sync_players():
 
 
 @app.get("/api/status")
-def get_status():
+async def get_status():
     db = SessionLocal()
     try:
         match_count = db.query(Match).count()
@@ -499,7 +556,7 @@ def get_status():
         upcoming = db.query(Match).filter(Match.status == "SCHEDULED").count()
         completed = db.query(Match).filter(Match.status == "COMPLETED").count()
         
-        return {
+        status_payload = {
             "api_key_configured": bool(CRICKET_API_KEY),
             "matches": match_count,
             "teams": team_count,
@@ -510,3 +567,19 @@ def get_status():
         }
     finally:
         db.close()
+
+    try:
+        overview = await fetch_ipl_overview()
+        status_payload["scraper"] = {
+            "available": True,
+            "season": overview["series"]["title"],
+            "scheduled_matches": len(overview.get("matches", [])),
+            "points_rows": len(overview.get("points_table", [])),
+        }
+    except LiveCricketSourceError as exc:
+        status_payload["scraper"] = {
+            "available": False,
+            "message": str(exc),
+        }
+
+    return status_payload
