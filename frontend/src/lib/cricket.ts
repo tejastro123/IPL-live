@@ -120,14 +120,14 @@ export interface PlayerRecord {
 }
 
 export interface SiteStatus {
-  api_key_configured: boolean
+  scraper: string
   matches: number
   teams: number
   players: number
   live_matches: number
   upcoming_matches: number
   completed_matches: number
-  scraper?: {
+  scraper_info?: {
     available: boolean
     season?: string
     scheduled_matches?: number

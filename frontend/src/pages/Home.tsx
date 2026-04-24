@@ -74,7 +74,7 @@ function Home() {
             `live-cricket-score-api` folder instead of leaving it unused beside the website.
           </p>
 
-          {status?.scraper && !status.scraper.available && (
+          {status?.scraper_info && !status.scraper_info.available && (
             <div className="subtle-warning">
               Season scraper unavailable. Local tracked data is still online.
             </div>
@@ -191,8 +191,8 @@ function Home() {
             )}
           </div>
 
-          {status?.scraper?.season && (
-            <p className="subtle-note">Fallback season source: {status.scraper.season}</p>
+          {status?.scraper_info?.season && (
+            <p className="subtle-note">Fallback season source: {status.scraper_info.season}</p>
           )}
         </div>
       </section>

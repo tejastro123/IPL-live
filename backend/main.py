@@ -1,13 +1,11 @@
 from fastapi import FastAPI, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import create_engine, Column, Integer, String, Float, Text
+from sqlalchemy import create_engine, Column, Integer, String, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
-import re
 from datetime import datetime
-import requests
 from dotenv import load_dotenv
 from typing import Optional
 from live_cricket_bridge import (
@@ -19,14 +17,6 @@ from live_cricket_bridge import (
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:tejas123@localhost/iplfan")
-CRICKET_API_KEY = os.getenv("CRICKET_API_KEY", "")
-CRICKET_API_URL = "https://api.cricapi.com/v1"
-
-TEAM_ID_MAP = {
-    "ROY": "RCB", "MUM": "MI", "CHE": "CSK", "DEL": "DC",
-    "RAJ": "RR", "LUC": "LSG", "SUN": "SRH", "GUJ": "GT",
-    "Kol": "KKR", "Pun": "PBKS"
-}
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -125,37 +115,6 @@ app.add_middleware(
 )
 
 
-def parse_team_info(team_info_str):
-    if not team_info_str:
-        return {"name": "Unknown", "short": "UNK"}
-    s = str(team_info_str)
-    name_match = re.search(r'name=([A-Za-z\s]+?)(?:;|})', s)
-    short_match = re.search(r'shortname=(\w+)', s)
-    name = name_match.group(1).strip() if name_match else "Unknown"
-    short = short_match.group(1).strip()[:3] if short_match else "UNK"
-    return {"name": name, "short": short}
-
-
-def parse_score(score_str):
-    if not score_str:
-        return {"r": 0, "w": 0, "o": 0}
-    if isinstance(score_str, dict):
-        return {
-            "r": score_str.get("r", 0),
-            "w": score_str.get("w", 0),
-            "o": score_str.get("o", 0)
-        }
-    rm = re.search(r'r=(\d+)', str(score_str))
-    wm = re.search(r'w=(\d+)', str(score_str))
-    om = re.search(r'o=([\d.]+)', str(score_str))
-    return {
-        "r": int(rm.group(1)) if rm else 0,
-        "w": int(wm.group(1)) if wm else 0,
-        "o": float(om.group(1)) if om else 0
-    }
-
-
-@app.get("/api/")
 def read_root():
     return {"message": "IPL 2026 Live API", "version": "2.0", "api_key_configured": bool(CRICKET_API_KEY)}
 
@@ -252,111 +211,55 @@ def get_match_details(match_id: str):
 
 
 @app.post("/api/sync")
-def sync_matches():
-    if not CRICKET_API_KEY:
-        return {"error": "No API key"}
-    
+async def sync_matches():
+    db = SessionLocal()
     try:
-        resp = requests.get(f"{CRICKET_API_URL}/currentMatches", params={"apikey": CRICKET_API_KEY}, timeout=30)
+        overview = await fetch_ipl_overview()
+        saved = 0
         
-        if resp.status_code != 200:
-            return {"error": f"API returned {resp.status_code}"}
+        for m in overview.get("matches", []):
+            match_data = {
+                "api_match_id": m.get("summary", "").replace(" ", "_")[:50],
+                "match_name": m.get("summary", ""),
+                "match_number": saved + 1,
+                "date": datetime.now().isoformat(),
+                "venue": m.get("venue", "Unknown"),
+                "status": m.get("status", "SCHEDULED").upper(),
+                "match_type": "T20",
+                "series_name": overview.get("series", {}).get("title", "IPL"),
+                "team1_id": m.get("team1", ""),
+                "team1_name": m.get("team1", ""),
+                "team1_short": m.get("team1", ""),
+                "team2_id": m.get("team2", ""),
+                "team2_name": m.get("team2", ""),
+                "team2_short": m.get("team2", ""),
+                "team1_score": "",
+                "team1_wickets": 0,
+                "team1_overs": 0.0,
+                "team2_score": "",
+                "team2_wickets": 0,
+                "team2_overs": 0.0,
+                "result": m.get("status", ""),
+                "winning_team": ""
+            }
+            
+            existing = db.query(Match).filter(Match.api_match_id == match_data["api_match_id"]).first()
+            if existing:
+                for k, v in match_data.items():
+                    setattr(existing, k, v)
+            else:
+                db_match = Match(**match_data)
+                db.add(db_match)
+            saved += 1
         
-        data = resp.json()
-        if data.get("status") != "success":
-            return {"error": data.get("reason", "API error")}
-        
-        db = SessionLocal()
-        try:
-            matches = data.get("data", [])
-            ipl_matches = [m for m in matches if "Indian Premier League" in m.get("name", "")]
-            saved = 0
-            
-            for m in ipl_matches:
-                teams_arr = m.get("teams", [])
-                team1_name = teams_arr[0] if len(teams_arr) > 0 else "T1"
-                team2_name = teams_arr[1] if len(teams_arr) > 1 else "T2"
-                
-                team_info = m.get("teamInfo", [])
-                t1_str = str(team_info[0]) if len(team_info) > 0 else ""
-                t2_str = str(team_info[1]) if len(team_info) > 1 else ""
-                
-                name1, name2 = team1_name, team2_name
-                short1 = team1_name.replace(" ", "")[:3].upper()
-                short2 = team2_name.replace(" ", "")[:3].upper()
-                
-                if "shortname=" in t1_str:
-                    s1 = re.search(r'shortname=(\w+)', t1_str)
-                    if s1: short1 = s1.group(1).strip()[:3]
-                if "shortname=" in t2_str:
-                    s2 = re.search(r'shortname=(\w+)', t2_str)
-                    if s2: short2 = s2.group(1).strip()[:3]
-                
-                short1 = TEAM_ID_MAP.get(short1, short1)
-                short2 = TEAM_ID_MAP.get(short2, short2)
-                
-                scores_arr = m.get("score", [])
-                s1 = parse_score(scores_arr[0]) if len(scores_arr) > 0 else {}
-                s2 = parse_score(scores_arr[1]) if len(scores_arr) > 1 else {}
-                
-                match_status = "LIVE" if m.get("matchStarted") else "SCHEDULED"
-                if m.get("matchEnded"):
-                    match_status = "COMPLETED"
-                
-                result = m.get("status", "")
-                winning_team = ""
-                if "won by" in result.lower():
-                    parts = result.split(" won by ")
-                    winning_team = parts[0] if len(parts) > 1 else ""
-                
-                match_num_match = re.search(r'Match (\d+)', m.get("name", ""))
-                match_num = int(match_num_match.group(1)) if match_num_match else 0
-                
-                match_data = {
-                    "api_match_id": str(m.get("id", "")),
-                    "match_name": m.get("name", ""),
-                    "match_number": match_num,
-                    "date": m.get("dateTimeGMT", ""),
-                    "venue": m.get("venue", "Unknown"),
-                    "status": match_status,
-                    "match_type": m.get("matchType", "T20").upper(),
-                    "series_name": "Indian Premier League 2026",
-                    "team1_id": short1,
-                    "team1_name": name1,
-                    "team1_short": short1,
-                    "team2_id": short2,
-                    "team2_name": name2,
-                    "team2_short": short2,
-                    "team1_score": f"{s1.get('r', 0)}/{s1.get('w', 0)}" if s1.get('r', 0) > 0 or s1.get('w', 0) > 0 else "",
-                    "team1_wickets": s1.get('w', 0),
-                    "team1_overs": s1.get('o', 0),
-                    "team2_score": f"{s2.get('r', 0)}/{s2.get('w', 0)}" if s2.get('r', 0) > 0 or s2.get('w', 0) > 0 else "",
-                    "team2_wickets": s2.get('w', 0),
-                    "team2_overs": s2.get('o', 0),
-                    "result": result,
-                    "winning_team": winning_team
-                }
-                
-                existing = db.query(Match).filter(Match.api_match_id == match_data["api_match_id"]).first()
-                if existing:
-                    for k, v in match_data.items():
-                        setattr(existing, k, v)
-                else:
-                    db_match = Match(**match_data)
-                    db.add(db_match)
-                saved += 1
-            
-            db.commit()
-            
-            # Update points table
-            all_matches = db.query(Match).filter(Match.series_name == "Indian Premier League 2026").all()
-            update_points_table(db, all_matches)
-            
-            return {"message": f"Synced {saved} matches"}
-        finally:
-            db.close()
+        db.commit()
+        return {"message": f"Synced {saved} matches from scraper"}
+    except LiveCricketSourceError as e:
+        return {"error": f"Scraper error: {str(e)}"}
     except Exception as e:
         return {"error": str(e)}
+    finally:
+        db.close()
 
 
 def update_points_table(db, matches):
@@ -557,7 +460,7 @@ async def get_status():
         completed = db.query(Match).filter(Match.status == "COMPLETED").count()
         
         status_payload = {
-            "api_key_configured": bool(CRICKET_API_KEY),
+            "scraper": "live-cricket-score-api",
             "matches": match_count,
             "teams": team_count,
             "players": player_count,
@@ -570,14 +473,14 @@ async def get_status():
 
     try:
         overview = await fetch_ipl_overview()
-        status_payload["scraper"] = {
+        status_payload["scraper_info"] = {
             "available": True,
             "season": overview["series"]["title"],
             "scheduled_matches": len(overview.get("matches", [])),
             "points_rows": len(overview.get("points_table", [])),
         }
     except LiveCricketSourceError as exc:
-        status_payload["scraper"] = {
+        status_payload["scraper_info"] = {
             "available": False,
             "message": str(exc),
         }

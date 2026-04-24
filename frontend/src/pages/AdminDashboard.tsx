@@ -108,12 +108,12 @@ function AdminDashboard() {
         </div>
 
         <div className="status-list">
-          <div><strong>API key configured:</strong> {status.api_key_configured ? 'yes' : 'no'}</div>
+          <div><strong>Data source:</strong> {status.scraper}</div>
           <div><strong>Live tracked matches:</strong> {status.live_matches}</div>
           <div><strong>Upcoming tracked matches:</strong> {status.upcoming_matches}</div>
           <div><strong>Completed tracked matches:</strong> {status.completed_matches}</div>
-          <div><strong>Scraper season:</strong> {status.scraper?.season ?? 'Unavailable'}</div>
-          {status.scraper?.message && <div><strong>Scraper message:</strong> {status.scraper.message}</div>}
+          <div><strong>Scraper season:</strong> {status.scraper_info?.season ?? 'Unavailable'}</div>
+          {status.scraper_info?.message && <div><strong>Scraper message:</strong> {status.scraper_info.message}</div>}
         </div>
       </section>
     </div>
