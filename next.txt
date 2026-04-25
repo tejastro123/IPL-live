@@ -1,2 +1,0 @@
-Expand backend with database models and endpoints.
-Implement admin authentication and CRUD features.

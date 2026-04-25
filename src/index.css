@@ -1,0 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-ipl-dark text-gray-100 font-body;
+  }
+
+  ::selection {
+    @apply bg-ipl-gold/30 text-white;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-ipl-navy;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-ipl-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ipl-gold/50;
+  }
+}
+
+@layer components {
+  .ipl-gradient {
+    @apply bg-gradient-to-r from-ipl-blue via-ipl-navy to-ipl-dark;
+  }
+
+  .gold-gradient {
+    @apply bg-gradient-to-r from-ipl-gold via-yellow-500 to-ipl-gold;
+  }
+
+  .card {
+    @apply bg-ipl-card border border-ipl-border rounded-xl;
+  }
+
+  .card-hover {
+    @apply card transition-all duration-300 hover:border-ipl-gold/30 hover:shadow-lg hover:shadow-ipl-gold/5;
+  }
+
+  .btn-primary {
+    @apply bg-ipl-blue hover:bg-ipl-blue/90 text-white font-semibold px-6 py-2.5 rounded-lg transition-all duration-200 active:scale-95;
+  }
+
+  .btn-gold {
+    @apply bg-ipl-gold hover:bg-ipl-gold/90 text-ipl-dark font-semibold px-6 py-2.5 rounded-lg transition-all duration-200 active:scale-95;
+  }
+
+  .btn-outline {
+    @apply border border-ipl-border hover:border-ipl-gold/50 text-gray-300 hover:text-ipl-gold font-medium px-6 py-2.5 rounded-lg transition-all duration-200;
+  }
+
+  .input-field {
+    @apply w-full bg-ipl-surface border border-ipl-border rounded-lg px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-ipl-gold/50 focus:ring-1 focus:ring-ipl-gold/30 transition-all duration-200;
+  }
+
+  .live-dot {
+    @apply w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse;
+  }
+
+  .section-title {
+    @apply text-2xl font-bold text-white mb-6;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-live {
+    @apply badge bg-red-500/20 text-red-400 border border-red-500/30;
+  }
+
+  .badge-upcoming {
+    @apply badge bg-blue-500/20 text-blue-400 border border-blue-500/30;
+  }
+
+  .badge-completed {
+    @apply badge bg-gray-500/20 text-gray-400 border border-gray-500/30;
+  }
+
+  .page-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8;
+  }
+}
